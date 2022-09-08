@@ -7,8 +7,12 @@
 #\==================================================================/#
 
 #/-----------------------------/ Libs \-----------------------------\#
-from utility import logging
-from typing  import Any, Callable, List, Tuple
+from sys          import argv as _dvars
+from typing       import Any, Callable, List, Tuple
+from json         import dump as _dump, load as _load
+from psycopg2     import connect as connect_db
+from utility      import logging
+from progress.bar import IncrementalBar as _Bar
 
 from vars import CONN_ADRGS, IDS_TB_CR, INS_ORGS_TB, DBRESP, ORGS_TB_CR, INS_IDS_TB
 #\------------------------------------------------------------------/#
@@ -16,15 +20,15 @@ from vars import CONN_ADRGS, IDS_TB_CR, INS_ORGS_TB, DBRESP, ORGS_TB_CR, INS_IDS
 
 #\------------------------------------------------------------------/#
 TEST_INSERT = (
-    f'   {INS_ORGS_TB}                                     '
-    f'   {8888                                           }  , '
+    f'   {INS_ORGS_TB}                                        '
+    f'   {8888}                                             , '
     f' \'{"Grace SPA"                                    }\', '
     f' \'{"Онежская ул., 9/4кА, Москва, Россия"          }\', '
     f' ARRAY {["Зоомагазин", "Ветеринарная аптека"]      }  , '
     f' \'{"Россия, Москва, Онежская улица, 9/4кА"        }\', '
     f' ARRAY {["8 (800) 511-04-30", "+7 (929) 527-29-84"]}  , '
     f' \'{"ежедневно, 09:00–22:00"                       }\', '
-    f' \'{"09:00:00 to 22:00:00 Everyday True"           }\'  '
+    f' ARRAY {[1.1, 1.2]}                                     '
      ');                                                      '
     f'{DBRESP} orgs_tb;                                     '
 )
@@ -32,12 +36,10 @@ TEST_INSERT = (
 
 
 #\------------------------------------------------------------------/#
-from psycopg2 import connect as connect_db
-
 @logging()
 def __connect() -> Tuple[Any, Any]:
     """This definition returns connection to database."""
-    con = connect_db(**CONN_ADRGS); return con, con.cursor()
+    return connect_db(**CONN_ADRGS)
 #\------------------------------------------------------------------/#
 
 
@@ -45,7 +47,7 @@ def __connect() -> Tuple[Any, Any]:
 @logging()
 def push_msg(msg : str) -> Any | bool:
     """This definition sends message to database."""
-    con, cur = __connect()
+    con = __connect(); cur = con.cursor()
 
     if con and cur:
         cur.execute(msg); con.commit()
@@ -77,8 +79,6 @@ def delete_db(_tb : str, msg : str) -> str | bool:
 @logging()
 def __test_database(_write : Callable[[str], None], _tb : str, _tst : str, **_) -> None:
 
-    push_msg(ORGS_TB_CR)
-
     test = bool(insert_db(TEST_INSERT))
     _write(f'[DB_INSERT] [{test}] <- insert_db({TEST_INSERT})\n\n')
 
@@ -93,7 +93,6 @@ def __test_database(_write : Callable[[str], None], _tb : str, _tst : str, **_) 
 #\------------------------------------------------------------------/#
 @logging()
 def __dump_tables(_write : Callable[[str], None], _tb : str, _fl : str, **_) -> None:
-    from json import dump as _dump
     _dump(get_db(_tb), open(_fl, 'w')); _write(f'[DUMP][True]\n')
 #\------------------------------------------------------------------/#    
 
@@ -102,10 +101,8 @@ def __dump_tables(_write : Callable[[str], None], _tb : str, _fl : str, **_) -> 
 @logging()
 def __load_tables(_write : Callable[[str], None], _tb : str, _fl : str, _) -> None:
 
-    from json import load as _load
     orgs : List[List[str | Any]] = _load(open(_fl))
 
-    from progress.bar import IncrementalBar as _Bar
     bar = _Bar('Loading', max=len(orgs))
 
     for org in orgs: 
@@ -115,7 +112,7 @@ def __load_tables(_write : Callable[[str], None], _tb : str, _fl : str, _) -> No
               f"'{org[2].replace(brt, brt*2)}', " \
               f"'{org[3].replace(brt, brt*2)}', ARRAY {org[4]}, " \
               f"'{org[5].replace(brt, brt*2)}', ARRAY {org[6]}, " \
-              f"'{org[7]}', '{org[8]}'); {DBRESP} {_tb};        "
+              f"'{org[7]}', ARRAY {org[8]}); {DBRESP} {_tb};    "
               
         if not insert_db(txt): 
             _write('[LOAD][False]\n'); return
@@ -132,7 +129,7 @@ def __load_tables(_write : Callable[[str], None], _tb : str, _fl : str, _) -> No
 #\------------------------------------------------------------------/# 
 @logging()
 def __cr_tables(_write : Callable[[str], None], _tbs : str, **_) -> None:
-    for _tb, ind in zip(_tbs, range(len(_tbs))): _write(f'[DB{ind+1}][{push_msg(_tb)}]\n')
+    for _tb, ind in zip(_tbs, range(len(_tbs))): _write(f'[DB{ind+1}][{bool(push_msg(_tb))}]\n')
 #\------------------------------------------------------------------/#
 
 
@@ -149,8 +146,6 @@ def __help_msg(_write : Callable[[str], None], **_) -> None:
 
 
 #\==================================================================/#
-from sys import argv as _dvars
-
 if __name__ == "__main__":
    
     DB_CNTRL = {

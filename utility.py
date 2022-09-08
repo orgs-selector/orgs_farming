@@ -12,7 +12,7 @@ from os            import remove     as _rmv
 from os.path       import exists     as _is_exist
 from traceback     import format_exc as _exc
 from datetime      import datetime   as dt
-from typing        import Callable, Literal, Any, List, Tuple, Dict, Set
+from typing        import Callable, Literal, Any
 from vars          import LOG_FILE
 #\------------------------------------------------------------------/#
 

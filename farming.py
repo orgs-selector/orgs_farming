@@ -7,23 +7,21 @@
 #\==================================================================/#
 
 #/-----------------------------/ Libs \-----------------------------\#
-from traceback    import format_exc
-from typing import Any
+from requests     import get as _get
+from typing       import Any, Callable, Dict, List, Literal, Tuple, Set
+from sys          import argv as _dvars
+from progress.bar import Bar
 
-
-from utility   import logging, saveLogs, Callable, Dict, List, Literal, Tuple, Set
-from vars import IDS_TB_CR, INS_ORGS_TB, DBRESP, ORGS_TB_CR, INS_IDS_TB
-from database import get_db, insert_db, push_msg
+from utility   import logging, saveLogs 
+from database  import get_db, insert_db
+from vars      import *
 #\------------------------------------------------------------------/#
 
-CPASS =(0, 500, 1000)
+CPASS = (0, 500, 1000)
 
 #\------------------------------------------------------------------/#
-def __run_farm() -> None:
-
-    from requests import get as _get
-    from vars import API_KEY_SET, RESULT_LIM, SEARCH_URL
-    
+@logging(saveLogs)
+def __run_farm(tb='orgs_tb', ks='ids_tb', **_) -> None:
     
     def __req(txt : str) -> Dict | Literal[False] | List:
         try:
@@ -34,15 +32,16 @@ def __run_farm() -> None:
         return False if 'features' not in req.keys() else req['features']
 
 
-    def __proc_req(_ids : List[str], txt : str, _pass : Tuple[int]=CPASS) -> None:
+    def __proc_req(_ids : List[str], txt : str, _tb : str, _ks : str, _pass : Tuple[int]=CPASS) -> Tuple[List[int], Dict[str, bool]]:
 
         _st = {'added' : False, 'error' : False, 'over' : False}
         
         for skip in _pass:
-            data = __req(txt)
+
+            data = __req(f'{txt}&skip={skip}')
                 
             if data:
-                _ids = __add_items(data, _ids)
+                _ids = __add_items(data, _ids, _tb, _ks)
 
             elif len(data) and skip:
                 _st['over'] = True; break
@@ -50,116 +49,99 @@ def __run_farm() -> None:
             if len(data) < 400:
                 break
         
-        _st['added'] = not (_st['error'] | _st['over'])
+        _st['added'] = not (_st['error'] or _st['over'])
 
         return (_ids, _st)
 
 
     def __turn_tuple(_item : Dict[str, str | Any]) -> Tuple:
+        """
+        return [0, id, name, description, ctg, addr, phone, hours, crdnts]
+        """
+        prop = _item['properties']
 
-        prop = _item['properties']; buffer = prop['CompanyMetaData']
+        _buf : Dict | str = prop['CompanyMetaData']
 
-        _name, _description, _id = (
-            prop[   'name'    ].replace("'", "''"), 
+        return [
+            0, int(_buf['id']), prop['name'].replace("'", "''"),
+
             prop['description'].replace("'", "''"),
-            int(buffer['id'])
-        )
-
-        _address     = buffer['address'   ].replace("'", "''")
-        _categories  = []
-        _phones      = ['']
-        
-        for cat in buffer['Categories']:
-            _categories.append(cat['name'])
-
-        _available = _hours = None
-
-        if 'Hours' in buffer.keys():
-            if 'text' in buffer['Hours'].keys():
-                _hours = buffer['Hours']['text']
             
-        if 'Phones' in buffer.keys():
-            for phone in buffer['Phones']:
-                _phones.append(phone['formatted'])
+            [cat['name'] for cat in _buf['Categories']],
+            
+            _buf[ 'address' ].replace("'", "''"),
+            
+            [it['formatted'] for it in _buf['Phones']] \
+                if 'Phones' in _buf.keys() else [''],
 
-        del buffer
+            _buf['Hours']['text'] \
+                if 'Hours' in _buf.keys() \
+                    and 'text' in _buf['Hours'].keys() else None,
+            
+            _item['geometry']['coordinates'] 
+        ]
 
-        return [0, _id         , _name      ,
-                   _description, _categories,
-                   _address    , _phones    , 
-                   _hours      , _available ]
 
+    def __add_items(_its : List, _ids : List, _tb : str, _ks : str) -> List[int]:
 
-    def __add_items(_its : List, _ids : List) -> List[int]:
+        txt_tb = ''
+        txt_ks = ''
 
         for _it in _its:
+
             _item = __turn_tuple(_it)
+            
             if _item[1] not in _ids:
-                insert_db(
-                    f'    {INS_ORGS_TB}    '
-                    f'     \'{_item[1]}\'   , '
-                    f'     \'{_item[2]}\'   , '
-                    f'     \'{_item[3]}\'   , '
-                    f' ARRAY {_item[4]}     , '
-                    f'     \'{_item[5]}\'   , '
-                    f' ARRAY {_item[6]}     , '
-                    f'     \'{_item[7]}\'   , '
-                    f'     \'{_item[8]}\'     '
-                     ');                      '
-                    f'{DBRESP} orgs_tb     ;'
-                )
-                insert_db(
-                    f'{INS_IDS_TB} \'{_item[1]}\'); '
-                    f'{DBRESP} orgs_tb     ;         '
-                )
+
+                txt_tb += f"('{_item[1]}',      '{_item[2]}'," \
+                          f" '{_item[3]}', ARRAY {_item[4]} ," \
+                          f" '{_item[5]}', ARRAY {_item[6]} ," \
+                          f" '{_item[7]}', ARRAY {_item[8]}),"
+                txt_ks += f"('{_item[1]}'),"
+
                 _ids.append(int(_item[1]))
+                
+        if txt_tb:
+            insert_db(f'{INS_ORGS_TB} {txt_tb[:-1]}; {DBRESP} {_tb};')
+            insert_db(f'{INS_IDS_TB} {txt_ks[:-1]}; {DBRESP} {_ks};')
 
         return _ids
 
+    ids_set = [int(i[1]) for i in get_db(ks)]; cat_added = []
 
-    push_msg(ORGS_TB_CR)
+    with Bar('Farming', max=len(MAINCAT_CONST)) as bar:
+        for api_key in API_KEY_SET:
+            
+            for ctg in MAINCAT_CONST:
+                if ctg not in cat_added:
 
-    push_msg(IDS_TB_CR)
+                    txt = f'{SEARCH_URL}?text={ctg}&type=biz&lang=ru_RU'\
+                        f'&results={RESULT_LIM}&apikey={api_key}'
 
-    tup_ids = get_db('ids_tb')
-
-    ids_set = [int(i[1]) for i in tup_ids]
-
-    cat_added = []
-
-    from vars import MAINCAT_CONST
-
-    for api_key in API_KEY_SET:
-        st = {'added' : False, 'error' : False, 'over' : False}
-        
-        for ctg in MAINCAT_CONST:
-            if ctg not in cat_added:
-                try:
-                    #f'{SEARCH_URL}?text={ctg}&type=biz&lang=ru_RU'
-                    #f'&results={result}&skip={skip}&apikey={api}'
-                    ids_set, st = __proc_req(ctg, api_key, ids_set)
+                    ids_set, st = __proc_req(ids_set, txt, tb, ks)
 
                     if st['added']:
-                        cat_added.append(ctg)
+                        cat_added.append(ctg); bar.next()
                     if st['over']:
                         break
-                except:
-                    saveLogs(f'[__run_farm]-->{format_exc()}')
-        
-            st = {'added' : False, 'error' : False, 'over' : False}
+            
+            if len(cat_added) == len(MAINCAT_CONST):
+                break
 #\------------------------------------------------------------------/#         
 
 
 #\------------------------------------------------------------------/#
-def __is_eq(_write : Callable[[str], None], _tb='orgs_tb', _ks='ids_tb') -> None:
+def __is_eq(_write : Callable[[str], None], _tb='orgs_tb', _ks='ids_tb', **_) -> None:
 
 
     def __walk(data : List, keys : Set, tb) -> bool:
-        for it in data:
-            if it[1] not in keys:
-                keys += it[1]
-            else:
-                _write(f'[{tb}][EQ!] [{it[1]}]\n\n')
+        with Bar('Scaning', max=len(data)) as bar:
+            for it in data:
+                bar.next()
+                if it[1] not in keys:
+                    keys |= {it[1]}
+                else:
+                    _write(f'[{tb}][EQ!] [{it[1]}]\n\n')
     
 
     data = get_db(_tb); __walk(data, set(), _tb)
@@ -179,8 +161,6 @@ def __help_msg(_write : Callable[[str], None], **_) -> None:
 
 
 #\==================================================================/#
-from sys import argv as _dvars
-
 if __name__ == "__main__":
 
     DB_CNTRL = {
