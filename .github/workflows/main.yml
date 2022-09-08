@@ -17,6 +17,7 @@ jobs:
           host: ${{ secrets.HOST }}
           key: ${{ secrets.SSH_KEY }}
           command: |
+            [ ! -d orgs-farming] || git clone https://github.com/orgs-selector/orgs_farming
             cd orgs_farming
             
             docker-compose down
