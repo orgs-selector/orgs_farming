@@ -12,7 +12,7 @@ from os            import remove     as _rmv
 from os.path       import exists     as _is_exist
 from traceback     import format_exc as _exc
 from datetime      import datetime   as dt
-from typing        import Callable, Literal, Any, List, Tuple
+from typing        import Callable, Literal, Any, List, Tuple, Dict, Set
 from vars          import LOG_FILE
 #\------------------------------------------------------------------/#
 
@@ -30,7 +30,7 @@ def saveLogs(txt : str, _f : str = LOG_FILE) -> int:
 
 
 #\------------------------------------------------------------------/#
-def logging(_write : Callable=print, _rtrn=False):
+def logging(__write : Callable[[str], None]=print, __rtrn=False):
     """ Logging decorator with args. """
     
     def _logging(func : Callable) -> Any | Literal[False]:
@@ -39,8 +39,8 @@ def logging(_write : Callable=print, _rtrn=False):
             try:
                 return func(*args, **kwargs)
             except:
-                _write(f"[{func.__name__}]-->{_exc()}")
-            return _rtrn
+                __write(f"[{func.__name__}]-->{_exc()}")
+            return __rtrn
 
         return wrap_func
         

@@ -1,5 +1,5 @@
 #/==================================================================\#
-# database.py                                          (c) Mtvy, 2022 #
+# database.py                                         (c) Mtvy, 2022 #
 #\==================================================================/#
 #                                                                    #
 # Copyright (c) 2022. Mtvy (Matvei Prudnikov, m.d.prudnik@gmail.com) #
@@ -7,7 +7,8 @@
 #\==================================================================/#
 
 #/-----------------------------/ Libs \-----------------------------\#
-from utility import logging, Any, Callable, List, Tuple
+from utility import logging
+from typing  import Any, Callable, List, Tuple
 
 from vars import CONN_ADRGS, IDS_TB_CR, INS_ORGS_TB, DBRESP, ORGS_TB_CR, INS_IDS_TB
 #\------------------------------------------------------------------/#
@@ -42,7 +43,7 @@ def __connect() -> Tuple[Any, Any]:
 
 #\------------------------------------------------------------------/#
 @logging()
-def __push_msg(msg : str) -> Any | bool:
+def push_msg(msg : str) -> Any | bool:
     """This definition sends message to database."""
     con, cur = __connect()
 
@@ -55,20 +56,20 @@ def __push_msg(msg : str) -> Any | bool:
 
 
 #\------------------------------------------------------------------/#
-def get_db(_tb : str) -> str | bool:
-    return __push_msg(f'SELECT * FROM {_tb};')
+def get_db(_tb : str) -> List | bool:
+    return push_msg(f'SELECT * FROM {_tb};')
 #\------------------------------------------------------------------/#
 
 
 #\------------------------------------------------------------------/#
 def insert_db(msg : str) -> str | bool:
-    return __push_msg(f'{msg};')
+    return push_msg(f'{msg};')
 #\------------------------------------------------------------------/#
 
 
 #\------------------------------------------------------------------/#
 def delete_db(_tb : str, msg : str) -> str | bool:
-    return __push_msg(f'DELETE FROM {_tb} WHERE {msg}; {DBRESP} orgs_tb;')
+    return push_msg(f'DELETE FROM {_tb} WHERE {msg}; {DBRESP} orgs_tb;')
 #\------------------------------------------------------------------/#
 
 
@@ -76,7 +77,7 @@ def delete_db(_tb : str, msg : str) -> str | bool:
 @logging()
 def __test_database(_write : Callable[[str], None], _tb : str, _tst : str, **_) -> None:
 
-    __push_msg(ORGS_TB_CR)
+    push_msg(ORGS_TB_CR)
 
     test = bool(insert_db(TEST_INSERT))
     _write(f'[DB_INSERT] [{test}] <- insert_db({TEST_INSERT})\n\n')
@@ -99,7 +100,7 @@ def __dump_tables(_write : Callable[[str], None], _tb : str, _fl : str, **_) -> 
 
 #\------------------------------------------------------------------/#
 @logging()
-def __load_tables(_write : Callable[[str], None], _tb : str, _fl : str, **_) -> None:
+def __load_tables(_write : Callable[[str], None], _tb : str, _fl : str, _) -> None:
 
     from json import load as _load
     orgs : List[List[str | Any]] = _load(open(_fl))
@@ -129,29 +130,29 @@ def __load_tables(_write : Callable[[str], None], _tb : str, _fl : str, **_) -> 
 
 
 #\------------------------------------------------------------------/# 
-def __help_msg(_write : Callable[[str], None], **_) -> None:
-    _write(f"-t Database testing\n"
-           f"-s Get database tables json\n"
-           f"-l Load tables into clear database (json needed)\n"
-           f"-c Create database tables\n"
-           f"-h Get help message\n"
-           f"-f Run organisations farming\n"
-           f"-e Fing equal variables\n")
-#\------------------------------------------------------------------/# 
-
-
-#\------------------------------------------------------------------/# 
-@logging
-def __cr_tables(_write : Callable, _tbs : str, **_) -> None:
-    for _tb in _tbs: _write(f'[{_tb.__name__}][{__push_msg(_tb)}]\n')
+@logging()
+def __cr_tables(_write : Callable[[str], None], _tbs : str, **_) -> None:
+    for _tb, ind in zip(_tbs, range(len(_tbs))): _write(f'[DB{ind+1}][{push_msg(_tb)}]\n')
 #\------------------------------------------------------------------/#
+
+
+#\------------------------------------------------------------------/# 
+def __help_msg(_write : Callable[[str], None], **_) -> None:
+    _write("-t Database testing                             \n"
+           "-s Get database tables json                     \n"
+           "-l Load tables into clear database (json needed)\n"
+           "-c Create database tables                       \n"
+           "-h Get help message                             \n"
+           "-f Run organisations farming                    \n"
+           "-e Fing equal variables                         \n")
+#\------------------------------------------------------------------/# 
 
 
 #\==================================================================/#
 from sys import argv as _dvars
 
 if __name__ == "__main__":
-
+   
     DB_CNTRL = {
         '-t' : __test_database,
         '-s' : __dump_tables,
@@ -159,6 +160,7 @@ if __name__ == "__main__":
         '-c' : __cr_tables,
         '-h' : __help_msg
     }
+
     _args = {
         '_write' : print,
         '_tb'    : 'orgs_tb',
@@ -166,5 +168,8 @@ if __name__ == "__main__":
         '_fl'    : 'orgs_tb.json',
         '_tbs'   : [ORGS_TB_CR, IDS_TB_CR]
     }
-    (DB_CNTRL[_dvar](_args) for _dvar in _dvars if _dvar in DB_CNTRL)
+
+    for _dvar in _dvars: 
+        if _dvar in DB_CNTRL: 
+            DB_CNTRL[_dvar](**_args)
 #\==================================================================/#

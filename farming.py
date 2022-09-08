@@ -7,67 +7,63 @@
 #\==================================================================/#
 
 #/-----------------------------/ Libs \-----------------------------\#
-from typing       import Dict, List, Literal, Tuple
 from traceback    import format_exc
-from sys          import argv as _dvars
+from typing import Any
 
-from utility   import c_logging, saveLogs
+
+from utility   import logging, saveLogs, Callable, Dict, List, Literal, Tuple, Set
+from vars import IDS_TB_CR, INS_ORGS_TB, DBRESP, ORGS_TB_CR, INS_IDS_TB
+from database import get_db, insert_db, push_msg
 #\------------------------------------------------------------------/#
 
+CPASS =(0, 500, 1000)
 
+#\------------------------------------------------------------------/#
 def __run_farm() -> None:
 
-    from requests  import get as _get
-    from variables import API_KEY_SET, RESULT_LIM , SEARCH_URL
+    from requests import get as _get
+    from vars import API_KEY_SET, RESULT_LIM, SEARCH_URL
     
-    def __req(txt     : str, 
-              res     : int, 
-              skip    : int, 
-              api_key : str) -> Dict | Literal[False] | List:
+    
+    def __req(txt : str) -> Dict | Literal[False] | List:
         try:
-            req = _get(
-                f'{SEARCH_URL}?text={txt}&type=biz&lang=ru_RU'
-                f'&results={res}&skip={skip}&apikey={api_key}'
-            ).json()
+            req = _get(txt).json()
         except:
             return []
 
         return False if 'features' not in req.keys() else req['features']
 
-    def __proc_req(category : str, 
-                   api_key  : str, 
-                   _ids     : List[str],
-                   passes   : Tuple[int] = (0, 500, 1000), 
-                   result   : int = RESULT_LIM):
+
+    def __proc_req(_ids : List[str], txt : str, _pass : Tuple[int]=CPASS) -> None:
 
         _st = {'added' : False, 'error' : False, 'over' : False}
-        for skip in passes:
-            data = __req(category, result, skip, api_key)
-
+        
+        for skip in _pass:
+            data = __req(txt)
+                
             if data:
                 _ids = __add_items(data, _ids)
 
-            elif data == [] and skip == 0:
-                _st['over'] = True
-                break
+            elif len(data) and skip:
+                _st['over'] = True; break
            
             if len(data) < 400:
                 break
         
-        if not _st['error'] and not _st['over']:
-            _st['added'] = True
+        _st['added'] = not (_st['error'] | _st['over'])
 
         return (_ids, _st)
 
 
-    def __turn_tuple(_item : Dict) -> Tuple:
+    def __turn_tuple(_item : Dict[str, str | Any]) -> Tuple:
 
-        buffer = _item['properties']['CompanyMetaData']
+        prop = _item['properties']; buffer = prop['CompanyMetaData']
 
-        _name        = _item['properties'][   'name'    ].replace("'", "''")
-        _description = _item['properties']['description'].replace("'", "''")
-
-        _id          = int(buffer['id'])
+        _name, _description, _id = (
+            prop[   'name'    ].replace("'", "''"), 
+            prop['description'].replace("'", "''"),
+            int(buffer['id'])
+        )
 
         _address     = buffer['address'   ].replace("'", "''")
         _categories  = []
@@ -100,7 +96,7 @@ def __run_farm() -> None:
             _item = __turn_tuple(_it)
             if _item[1] not in _ids:
                 insert_db(
-                    f'    {INSERT_ORGS_TB}    '
+                    f'    {INS_ORGS_TB}    '
                     f'     \'{_item[1]}\'   , '
                     f'     \'{_item[2]}\'   , '
                     f'     \'{_item[3]}\'   , '
@@ -110,20 +106,20 @@ def __run_farm() -> None:
                     f'     \'{_item[7]}\'   , '
                     f'     \'{_item[8]}\'     '
                      ');                      '
-                    f'{COUNT_DB} orgs_tb     ;'
+                    f'{DBRESP} orgs_tb     ;'
                 )
                 insert_db(
-                    f'{INSERT_IDS_TB} \'{_item[1]}\'); '
-                    f'{COUNT_DB} orgs_tb     ;         '
+                    f'{INS_IDS_TB} \'{_item[1]}\'); '
+                    f'{DBRESP} orgs_tb     ;         '
                 )
                 _ids.append(int(_item[1]))
 
         return _ids
 
 
-    __push_msg(ORGS_TB_CREATE)
+    push_msg(ORGS_TB_CR)
 
-    __push_msg(IDS_TB_CREATE)
+    push_msg(IDS_TB_CR)
 
     tup_ids = get_db('ids_tb')
 
@@ -131,7 +127,7 @@ def __run_farm() -> None:
 
     cat_added = []
 
-    from variables import MAINCAT_CONST
+    from vars import MAINCAT_CONST
 
     for api_key in API_KEY_SET:
         st = {'added' : False, 'error' : False, 'over' : False}
@@ -139,6 +135,8 @@ def __run_farm() -> None:
         for ctg in MAINCAT_CONST:
             if ctg not in cat_added:
                 try:
+                    #f'{SEARCH_URL}?text={ctg}&type=biz&lang=ru_RU'
+                    #f'&results={result}&skip={skip}&apikey={api}'
                     ids_set, st = __proc_req(ctg, api_key, ids_set)
 
                     if st['added']:
@@ -149,57 +147,57 @@ def __run_farm() -> None:
                     saveLogs(f'[__run_farm]-->{format_exc()}')
         
             st = {'added' : False, 'error' : False, 'over' : False}
-         
+#\------------------------------------------------------------------/#         
 
-def __is_eq() -> None:
-    _f = False
-    test = get_db('orgs_tb')
 
-    ids = []
+#\------------------------------------------------------------------/#
+def __is_eq(_write : Callable[[str], None], _tb='orgs_tb', _ks='ids_tb') -> None:
 
-    for i in test:
-        if i[1] not in ids:
-            ids.append(i[1])
-        else:
-            saveLogs(f'[] [{i[1]}]\n\n')
-            _f = True
+
+    def __walk(data : List, keys : Set, tb) -> bool:
+        for it in data:
+            if it[1] not in keys:
+                keys += it[1]
+            else:
+                _write(f'[{tb}][EQ!] [{it[1]}]\n\n')
     
-    _ids = get_db('ids_tb')
 
-    eq_ids = []
-
-    for i in _ids:
-        if i[1] not in eq_ids:
-            eq_ids.append(i[1])
-        else:
-            saveLogs(f'[] [{i[1]}]\n\n')
-            _f = True
+    data = get_db(_tb); __walk(data, set(), _tb)
     
-    print(f'[EQ][{_f}]\n')
-            
+    data = get_db(_ks); __walk(data, set(), _ks)
+    
+    print(f'[EQ][END]\n')
+#\------------------------------------------------------------------/#
+       
 
-def __help_msg():
-    print(f"'-t' Database testing\n"
-          f"'-s' Get database tables json\n"
-          f"'-l' Load tables into clear database (json needed)\n"
-          f"'-c' Create database tables\n"
-          f"'-h' Get help message\n"
-          f"'-f' Run organisations farming\n"
-          f"'-e' Fing equal variables\n")
-
+#\------------------------------------------------------------------/#
+def __help_msg(_write : Callable[[str], None], **_) -> None:
+    _write("'-h' Get help message         \n"
+           "'-f' Run organisations farming\n"
+           "'-e' Fing equal variables     \n")
 #\------------------------------------------------------------------/#
 
 
 #\==================================================================/#
+from sys import argv as _dvars
+
 if __name__ == "__main__":
 
-    DB_CONTROL_METHODS = {
+    DB_CNTRL = {
         '-h' : __help_msg,
         '-f' : __run_farm,
         '-e' : __is_eq
     }
 
-    for _dvar in _dvars:
-        if _dvar in DB_CONTROL_METHODS:
-            DB_CONTROL_METHODS[_dvar]()
+    _args = {
+        '_write' : print,
+        '_tb'    : 'orgs_tb',
+        '_tst'   : 'name = \'Grace SPA\'',
+        '_fl'    : 'orgs_tb.json',
+        '_tbs'   : [ORGS_TB_CR, IDS_TB_CR]
+    }
+
+    for _dvar in _dvars: 
+        if _dvar in DB_CNTRL: 
+            DB_CNTRL[_dvar](**_args)
 #\==================================================================/#
