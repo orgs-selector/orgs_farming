@@ -3,4 +3,5 @@ version: '3'
 services:
   orgs:
     build: ./
-    restart: '7200'
+    network_mode: host
+    restart: 7200
