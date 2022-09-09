@@ -4,4 +4,3 @@ services:
   orgs:
     build: ./
     network_mode: host
-    restart: 7200
