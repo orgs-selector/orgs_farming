@@ -3,9 +3,9 @@ from os.path import join as get_path;
 LOG_FILE = get_path('bot.txt')
 
 CONN_ADRGS = {
-    'database' : 'map' ,
-    'password' : 'map' ,
-    'user'     : 'map' ,
+    'database' : 'orgs' ,
+    'password' : 'orgs' ,
+    'user'     : 'orgs' ,
     'host'     : 'localhost',
     'port'     : '5432'     
 }
